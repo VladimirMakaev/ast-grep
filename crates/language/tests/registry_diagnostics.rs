@@ -13,11 +13,10 @@ fn compile_records(records: &str, emit_items: bool) -> std::process::Output {
   std::fs::create_dir(&temporary).unwrap();
   let source = temporary.join("rows.rs");
   let registry = concat!(env!("CARGO_MANIFEST_DIR"), "/src/registry.rs");
-  let library =
-    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs")).unwrap();
-  let start = library.find("macro_rules! declare_marker {").unwrap();
-  let end = library[start..].find("macro_rules! declare_alias").unwrap() + start;
-  let marker = &library[start..end];
+  let types = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/registry_types.rs"
+  );
   let consumer = if emit_items {
     r#"macro_rules! unused {
       ((); [$( $name:ident $feature:literal $id:tt $lookup:tt {$($items:tt)*} $parsers:tt )*])
@@ -32,9 +31,10 @@ fn compile_records(records: &str, emit_items: bool) -> std::process::Output {
       r#"#[macro_use]
 #[path = {registry:?}]
 mod registry;
-{marker}
-macro_rules! declare_module {{ ($($tokens:tt)*) => {{}}; }}
-macro_rules! declare_alias {{ ($($tokens:tt)*) => {{}}; }}
+#[path = {types:?}]
+mod types;
+use types::*;
+use std::{{borrow::Cow, fmt}};
 {consumer}
 normalize_languages!(unused, (); [{records}]);
 "#
@@ -47,6 +47,7 @@ normalize_languages!(unused, (); [{records}]);
       "--crate-type=lib",
       "--emit=metadata",
       "--error-format=json",
+      "--cfg=feature=\"enabled\"",
       "--out-dir",
     ])
     .arg(&temporary)
@@ -99,13 +100,13 @@ fn invalid_metadata_identifies_the_row() {
       "E0599",
     ),
     (
-      "implementation: external, aliases: [], extensions: [], enum_id: \"wrong\"",
+      "implementation: generated, aliases: [], extensions: [], enum_id: \"wrong\"",
       "enum_id: \"wrong\"",
       "E0308",
     ),
   ] {
     let row = format!(
-      "Probe {{ feature: \"unused\", module: unused, parser: unused => unused::LANGUAGE, \
+      "Probe {{ feature: \"enabled\", module: none, parser: unused => unused::LANGUAGE, \
        preprocessing: None, {tail} }}"
     );
     let output = compile_records(&row, true);
@@ -115,8 +116,13 @@ fn invalid_metadata_identifies_the_row() {
       .lines()
       .filter_map(|line| serde_json::from_str(line).ok())
       .collect();
+    let errors: Vec<_> = diagnostics
+      .iter()
+      .filter(|d| d["level"] == "error" && !d["code"].is_null())
+      .collect();
+    assert_eq!(errors.len(), 1, "expected only the row error: {stderr}");
     assert!(
-      diagnostics.iter().any(|d| {
+      errors.iter().any(|d| {
         d["code"]["code"] == code
           && d["spans"].as_array().unwrap().iter().any(|span| {
             span["is_primary"] == true

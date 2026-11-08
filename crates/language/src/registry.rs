@@ -238,6 +238,7 @@ macro_rules! emit_registry {
     #[allow(dead_code)]
     enum LanguagePosition { $($name,)* }
 
+    // $variant is local to this nested macro, not an outer emitter metavariable.
     #[cfg(any($(feature = $feature),*))]
     macro_rules! registry_enum_id {
       ($variant:ident) => { LanguagePosition::$variant as isize };
@@ -288,5 +289,103 @@ macro_rules! emit_dispatch {
     $name:ident $feature:literal $identity:tt $lookup:tt $items:tt $parsers:tt
   )*]) => {
     match *$me { $(#[cfg(feature = $feature)] SupportLang::$name => $name.$method $arguments,)* }
+  };
+}
+
+// Shared declarations: production and compile-fail fixtures include this module.
+macro_rules! declare_module {
+  ($feature:literal, none) => {};
+  ($feature:literal, $module:ident) => {
+    #[cfg(feature=$feature)]
+    mod $module;
+  };
+}
+// generated supplies the standard unit marker; external uses a marker whose
+// module provides its own Language/LanguageExt implementation (for example Html).
+// New custom behavior uses external rather than adding generator strategies.
+macro_rules! declare_marker {
+  ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, external) => {
+    const _: () = {
+      let preprocessing: Option<char> = $pre;
+      assert!(
+        preprocessing.is_none(),
+        concat!(
+          stringify!($name),
+          ": external marker owns preprocessing; expected None"
+        )
+      );
+    };
+    #[cfg(feature=$feature)]
+    pub use $module::$name;
+  };
+  ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, generated) => {
+    #[cfg(feature=$feature)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct $name;
+    #[cfg(feature=$feature)]
+    impl Language for $name {
+      fn kind_to_id(&self, kind: &str) -> u16 {
+        self.get_ts_language().id_for_node_kind(kind, true)
+      }
+      fn field_to_id(&self, field: &str) -> Option<u16> {
+        self
+          .get_ts_language()
+          .field_id_for_name(field)
+          .map(|f| f.get())
+      }
+      fn expando_char(&self) -> char {
+        ($pre).unwrap_or_else(|| self.meta_var_char())
+      }
+      fn pre_process_pattern<'q>(&self, query: &'q str) -> Cow<'q, str> {
+        registry_support::prepare($pre, query)
+      }
+      fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {
+        builder.build(|src| StrDoc::try_new(src, *self))
+      }
+    }
+    #[cfg(feature=$feature)]
+    impl LanguageExt for $name {
+      fn get_ts_language(&self) -> TSLanguage {
+        parsers::$function()
+      }
+    }
+  };
+  ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, $kind:ident) => {
+    const _: () = {
+      #[allow(non_camel_case_types)]
+      enum ExpectedGeneratedOrExternal {
+        generated,
+        external,
+      }
+      let _ = ExpectedGeneratedOrExternal::$kind;
+    };
+    declare_marker!($feature, $name, $module, $function, $pre, generated);
+  };
+}
+macro_rules! declare_alias {
+  ($feature:literal,$name:ident,$aliases:expr) => {
+    #[cfg(feature=$feature)]
+    impl Alias for $name {
+      const ALIAS: &'static [&'static str] = &$aliases;
+    }
+    #[cfg(feature=$feature)]
+    impl fmt::Display for $name {
+      fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+      }
+    }
+    #[cfg(feature=$feature)]
+    impl<'de> Deserialize<'de> for $name {
+      fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        registry_support::validate_alias(d, Self::ALIAS)?;
+        Ok($name)
+      }
+    }
+    #[cfg(feature=$feature)]
+    impl From<$name> for SupportLang {
+      fn from(_: $name) -> Self {
+        Self::$name
+      }
+    }
   };
 }

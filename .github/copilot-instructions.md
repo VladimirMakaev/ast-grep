@@ -18,6 +18,7 @@ Run these commands in the repository root (the top-level directory of your local
 ### Linting and Formatting
 - Format check: run both `cargo fmt --all -- --check` and `git ls-files -z -- '*.rs' | xargs -0 rustfmt --edition 2024 --check`. The second command includes nested and macro-declared modules in every crate. Stage new Rust files so Git lists them.
 - Format fixes: run `cargo fmt --all` and `git ls-files -z -- '*.rs' | xargs -0 rustfmt --edition 2024`. Macro table layout remains manual.
+- Stage tracked-file deletions (for example, `git add -u`) before the recursive format command: Git lists a deleted path until its deletion is staged.
 - Lint check: `cargo clippy --all-targets --all-features --workspace --release --locked -- -D clippy::all` - takes 30 seconds. **NEVER CANCEL.** Set timeout to 60+ seconds.
 
 ### Running the CLI
