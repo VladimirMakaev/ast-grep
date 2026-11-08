@@ -1,12 +1,8 @@
-//! This module defines the supported programming languages for ast-grep.
+//! Built-in programming languages, parser features and registry metadata.
 //!
-//! It provides a set of customized languages with expando_char / pre_process_pattern,
-//! and a set of stub languages without preprocessing.
-//! Registry declarations select parser features, metadata and preprocessing.
-//! A rule of thumb: if your language does not accept identifiers like `$VAR`.
-//! You need use `impl_lang_expando!` macro and a standalone file for testing.
-//! Otherwise, you can define it as a stub language using `impl_lang!`.
-//! To see the full list of languages, visit `<https://ast-grep.github.io/reference/languages.html>`
+//! One registry declaration per language selects its parser, names, aliases,
+//! extensions and preprocessing. Specialized behavior and tests remain in the
+//! corresponding language modules. The registry can contain no enabled parsers.
 //!
 //! ```
 //! # #[cfg(feature = "tree-sitter-rust")]
