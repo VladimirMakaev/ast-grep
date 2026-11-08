@@ -1,5 +1,5 @@
 // One source of language facts. rustfmt does not format this macro table or its
-// emitters, so keep their layout hand-wrapped. The explicit rustfmt source-glob
+// emitters, so keep their layout hand-wrapped. The recursive tracked-source rustfmt
 // check in CI covers ordinary macro-declared modules. Append new languages: position
 // preserves the public enum discriminants even when earlier features are disabled.
 // The table is in all_langs order; Go/Elixir alone pin their legacy enum IDs.
@@ -25,7 +25,8 @@ macro_rules! with_languages {
         feature: "tree-sitter-cpp", module: cpp,
         parser: language_cpp => tree_sitter_cpp::LANGUAGE,
         preprocessing: Some('𐀀'), implementation: generated,
-        aliases: ["cc", "c++", "cpp", "cxx"], extensions: ["cc", "hpp", "cpp", "c++", "hh", "cxx", "cu", "ino"],
+        aliases: ["cc", "c++", "cpp", "cxx"],
+        extensions: ["cc", "hpp", "cpp", "c++", "hh", "cxx", "cu", "ino"],
       },
       CSharp {
         feature: "tree-sitter-c-sharp", module: csharp,
@@ -205,6 +206,7 @@ macro_rules! normalize_languages {
     $callback! {$arguments; [$(
       $name $feature ($($enum_id)?) ($aliases, $extensions)
       {
+        $(const _: isize = $enum_id;)?
         declare_module!($feature, $module);
         declare_marker!($feature, $name, $module, $function, $pre, $kind);
         declare_alias!($feature, $name, $aliases);
@@ -236,13 +238,16 @@ macro_rules! emit_registry {
     #[allow(dead_code)]
     enum LanguagePosition { $($name,)* }
 
+    #[cfg(any($(feature = $feature),*))]
+    macro_rules! registry_enum_id {
+      ($variant:ident) => { LanguagePosition::$variant as isize };
+      ($variant:ident, $value:literal) => { $value };
+    }
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub enum SupportLang { $(
       #[cfg(feature = $feature)]
-      $name = match [$($enum_id)?].first() {
-        Some(&id) => id,
-        None => LanguagePosition::$name as isize,
-      },
+      $name = registry_enum_id!($name $(, $enum_id)?),
     )* }
 
     // Serde's derive uses declaration indices, not Rust discriminants. Keep the
@@ -251,7 +256,9 @@ macro_rules! emit_registry {
       fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
         match *self { $(
           #[cfg(feature = $feature)]
-          Self::$name => _serializer.serialize_unit_variant("SupportLang", Self::$name as u32, stringify!($name)),
+          Self::$name => _serializer.serialize_unit_variant(
+            "SupportLang", Self::$name as u32, stringify!($name)
+          ),
         )* }
       }
     }

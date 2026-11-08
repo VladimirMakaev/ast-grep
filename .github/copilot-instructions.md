@@ -16,7 +16,8 @@ Run these commands in the repository root (the top-level directory of your local
 - Test suite: `cargo test` - takes 48 seconds, runs 94+ tests. **NEVER CANCEL.** Set timeout to 120+ seconds.
 
 ### Linting and Formatting
-- Format check: `cargo fmt --all -- --check` - takes <1 second
+- Format check: run both `cargo fmt --all -- --check` and `git ls-files -z -- '*.rs' | xargs -0 rustfmt --edition 2024 --check`. The second command includes nested and macro-declared modules in every crate. Stage new Rust files so Git lists them.
+- Format fixes: run `cargo fmt --all` and `git ls-files -z -- '*.rs' | xargs -0 rustfmt --edition 2024`. Macro table layout remains manual.
 - Lint check: `cargo clippy --all-targets --all-features --workspace --release --locked -- -D clippy::all` - takes 30 seconds. **NEVER CANCEL.** Set timeout to 60+ seconds.
 
 ### Running the CLI
@@ -87,7 +88,7 @@ Run these commands in the repository root (the top-level directory of your local
    ```
 
 ### Pre-commit validation checklist:
-- [ ] `cargo fmt --all -- --check` (format check)
+- [ ] `cargo fmt --all -- --check` and `git ls-files -z -- '*.rs' | xargs -0 rustfmt --edition 2024 --check` (both format checks)
 - [ ] `cargo clippy --all-targets --all-features --workspace --release --locked -- -D clippy::all` (lint check)
 - [ ] `cargo test` (test suite)
 - [ ] Run validation scenarios above

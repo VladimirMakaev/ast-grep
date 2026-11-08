@@ -97,7 +97,7 @@ impl FromStr for SupportLang {
 
 /// Guess which programming language a file is written in
 /// Adapt from `<https://github.com/Wilfred/difftastic/blob/master/src/parse/guess_language.rs>`
-/// N.B do not confuse it with `FromStr` trait. This function is to guess language from file extension.
+/// N.B do not confuse it with `FromStr` trait. This function guesses language from file extension.
 fn from_extension(path: &Path) -> Option<SupportLang> {
   let ext = path.extension()?.to_str()?;
   SupportLang::all_langs()
@@ -146,6 +146,16 @@ macro_rules! declare_module {
 // New custom behavior uses external rather than adding generator strategies.
 macro_rules! declare_marker {
   ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, external) => {
+    const _: () = {
+      let preprocessing: Option<char> = $pre;
+      assert!(
+        preprocessing.is_none(),
+        concat!(
+          stringify!($name),
+          ": external marker owns preprocessing; expected None"
+        )
+      );
+    };
     #[cfg(feature=$feature)]
     pub use $module::$name;
   };
@@ -181,6 +191,12 @@ macro_rules! declare_marker {
       }
     }
   };
+  ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, $kind:ident) => {
+    const _: () = {
+      enum ExpectedGeneratedOrExternal {}
+      let _ = ExpectedGeneratedOrExternal::$kind;
+    };
+  };
 }
 macro_rules! declare_alias {
   ($feature:literal,$name:ident,$aliases:expr) => {
@@ -215,11 +231,11 @@ mod registry;
 with_languages!(emit_registry);
 impl Language for SupportLang {
   fn kind_to_id(&self, kind: &str) -> u16 {
-    let _ = &kind;
+    let _ = &kind; // Keep empty-feature builds warning-free.
     with_languages!(emit_dispatch, self, kind_to_id, (kind))
   }
   fn field_to_id(&self, field: &str) -> Option<u16> {
-    let _ = &field;
+    let _ = &field; // Keep empty-feature builds warning-free.
     with_languages!(emit_dispatch, self, field_to_id, (field))
   }
   fn meta_var_char(&self) -> char {
@@ -229,15 +245,15 @@ impl Language for SupportLang {
     with_languages!(emit_dispatch, self, expando_char, ())
   }
   fn extract_meta_var(&self, source: &str) -> Option<MetaVariable> {
-    let _ = &source;
+    let _ = &source; // Keep empty-feature builds warning-free.
     with_languages!(emit_dispatch, self, extract_meta_var, (source))
   }
   fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {
-    let _ = &builder;
+    let _ = &builder; // Keep empty-feature builds warning-free.
     with_languages!(emit_dispatch, self, build_pattern, (builder))
   }
   fn pre_process_pattern<'q>(&self, query: &'q str) -> Cow<'q, str> {
-    let _ = &query;
+    let _ = &query; // Keep empty-feature builds warning-free.
     with_languages!(emit_dispatch, self, pre_process_pattern, (query))
   }
   fn from_path<P: AsRef<Path>>(path: P) -> Option<Self> {
@@ -255,10 +271,13 @@ impl LanguageExt for SupportLang {
     &self,
     root: Node<StrDoc<L>>,
   ) -> Vec<(String, Vec<TSRange>)> {
-    let _ = &root;
+    let _ = &root; // Keep empty-feature builds warning-free.
     with_languages!(emit_dispatch, self, extract_injections, (root))
   }
 }
+#[cfg(test)]
+mod serde_test_support;
+
 #[cfg(test)]
 mod test {
   use super::*;
@@ -501,6 +520,10 @@ mod test {
       let lang: SupportLang = name.parse().unwrap();
       assert_eq!(lang.to_string(), name);
       assert_eq!(lang as usize, id);
+      assert_eq!(
+        lang.serialize(serde_test_support::IndexSerializer).unwrap(),
+        (id as u32, name)
+      );
       assert_eq!(alias(lang), aliases);
       assert_eq!(extensions(lang), exts);
       assert_eq!(lang.expando_char(), expando);

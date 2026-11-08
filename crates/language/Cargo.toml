@@ -86,4 +86,4 @@ napi-lang = [
 default = ["builtin-parser"]
 
 [dev-dependencies]
-serde_json="1.0.154"
+serde_json = "1.0.154"

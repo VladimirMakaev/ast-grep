@@ -1,7 +1,7 @@
 //! Exercise the actual private macro schema without a new test dependency.
 use std::process::Command;
 
-fn compile_records(records: &str) -> std::process::Output {
+fn compile_records(records: &str, emit_items: bool) -> std::process::Output {
   let temporary = std::env::temp_dir().join(format!(
     "ast-grep-registry-diagnostic-{}-{}",
     std::process::id(),
@@ -11,15 +11,31 @@ fn compile_records(records: &str) -> std::process::Output {
       .as_nanos()
   ));
   std::fs::create_dir(&temporary).unwrap();
-  let source = temporary.join("malformed.rs");
+  let source = temporary.join("rows.rs");
   let registry = concat!(env!("CARGO_MANIFEST_DIR"), "/src/registry.rs");
+  let library =
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs")).unwrap();
+  let start = library.find("macro_rules! declare_marker {").unwrap();
+  let end = library[start..].find("macro_rules! declare_alias").unwrap() + start;
+  let marker = &library[start..end];
+  let consumer = if emit_items {
+    r#"macro_rules! unused {
+      ((); [$( $name:ident $feature:literal $id:tt $lookup:tt {$($items:tt)*} $parsers:tt )*])
+        => { $($($items)*)* };
+    }"#
+  } else {
+    "macro_rules! unused { ($($tokens:tt)*) => {}; }"
+  };
   std::fs::write(
     &source,
     format!(
       r#"#[macro_use]
 #[path = {registry:?}]
 mod registry;
-macro_rules! unused {{ ($($tokens:tt)*) => {{}}; }}
+{marker}
+macro_rules! declare_module {{ ($($tokens:tt)*) => {{}}; }}
+macro_rules! declare_alias {{ ($($tokens:tt)*) => {{}}; }}
+{consumer}
 normalize_languages!(unused, (); [{records}]);
 "#
     ),
@@ -30,6 +46,7 @@ normalize_languages!(unused, (); [{records}]);
       "--edition=2024",
       "--crate-type=lib",
       "--emit=metadata",
+      "--error-format=json",
       "--out-dir",
     ])
     .arg(&temporary)
@@ -42,7 +59,7 @@ normalize_languages!(unused, (); [{records}]);
 
 #[test]
 fn malformed_record_explains_the_schema() {
-  let output = compile_records(r#"Broken { feature: "missing-fields" },"#);
+  let output = compile_records(r#"Broken { feature: "missing-fields" },"#, false);
   let stderr = String::from_utf8(output.stderr).unwrap();
   assert!(
     !output.status.success(),
@@ -64,10 +81,68 @@ fn trailing_commas_are_optional() {
       feature: "unused", module: none, parser: unused => unused::LANGUAGE,
       preprocessing: None, implementation: external, aliases: [], extensions: [], enum_id: 7
     }"#,
+    false,
   );
   assert!(
     output.status.success(),
     "{}",
     String::from_utf8_lossy(&output.stderr)
+  );
+}
+
+#[test]
+fn invalid_metadata_identifies_the_row() {
+  for (tail, fragment, code) in [
+    (
+      "implementation: generatedd, aliases: [], extensions: []",
+      "implementation: generatedd",
+      "E0599",
+    ),
+    (
+      "implementation: external, aliases: [], extensions: [], enum_id: \"wrong\"",
+      "enum_id: \"wrong\"",
+      "E0308",
+    ),
+  ] {
+    let row = format!(
+      "Probe {{ feature: \"unused\", module: unused, parser: unused => unused::LANGUAGE, \
+       preprocessing: None, {tail} }}"
+    );
+    let output = compile_records(&row, true);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(!output.status.success(), "invalid row compiled");
+    let diagnostics: Vec<serde_json::Value> = stderr
+      .lines()
+      .filter_map(|line| serde_json::from_str(line).ok())
+      .collect();
+    assert!(
+      diagnostics.iter().any(|d| {
+        d["code"]["code"] == code
+          && d["spans"].as_array().unwrap().iter().any(|span| {
+            span["is_primary"] == true
+              && span["text"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|line| line["text"].as_str().unwrap().contains(fragment))
+          })
+      }),
+      "diagnostic is not anchored to {fragment}: {stderr}"
+    );
+  }
+}
+
+#[test]
+fn external_preprocessing_is_rejected() {
+  let output = compile_records(
+    r#"Probe { feature: "unused", module: unused, parser: unused => unused::LANGUAGE,
+      preprocessing: Some('Q'), implementation: external, aliases: [], extensions: [] }"#,
+    true,
+  );
+  let stderr = String::from_utf8(output.stderr).unwrap();
+  assert!(!output.status.success(), "inert preprocessing compiled");
+  assert!(
+    stderr.contains("external marker owns preprocessing; expected None"),
+    "{stderr}"
   );
 }

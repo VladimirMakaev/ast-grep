@@ -47,8 +47,8 @@ jobs:
       - name: Format
         run: |
           cargo fmt --all -- --check
-          # rustfmt cannot discover mod declarations emitted by macros.
-          rustfmt --edition 2024 --check crates/language/src/*.rs
+          # Include nested and macro-declared modules throughout the repository.
+          git ls-files -z -- '*.rs' | xargs -0 rustfmt --edition 2024 --check
       - name: Lint
         run: cargo clippy --all-targets --all-features --workspace --release --locked -- -D clippy::all
   minimal-language:
