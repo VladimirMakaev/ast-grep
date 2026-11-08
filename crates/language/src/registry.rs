@@ -230,21 +230,6 @@ macro_rules! normalize_languages {
   };
 }
 
-macro_rules! language_order {
-  ($position:expr) => {
-    $position
-  };
-  ($position:expr, next) => {
-    $position + 1
-  };
-  ($position:expr, previous) => {
-    $position - 1
-  };
-  ($position:expr, $invalid:ident) => {
-    compile_error!("language order override must be next or previous");
-  };
-}
-
 macro_rules! emit_registry {
   ((); [$(
     $name:ident $feature:literal ($enum_id:expr, $order:expr)
@@ -255,6 +240,23 @@ macro_rules! emit_registry {
     $($($items)*)*
     #[cfg(feature = "tree-sitter-html")]
     pub use html::Html;
+
+    // Only rank uses this helper; an empty registry has no rank arms.
+    #[cfg(any($(feature = $feature),*))]
+    macro_rules! language_order {
+      ($position:expr) => {
+        $position
+      };
+      ($position:expr, next) => {
+        $position + 1
+      };
+      ($position:expr, previous) => {
+        $position - 1
+      };
+      ($position:expr, $invalid:ident) => {
+        compile_error!("language order override must be next or previous");
+      };
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Hash)]
     pub enum SupportLang { $(#[cfg(feature = $feature)] $name = $enum_id,)* }
