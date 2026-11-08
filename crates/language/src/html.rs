@@ -1,4 +1,4 @@
-use super::pre_process_pattern;
+use super::registry_support::prepare;
 use ast_grep_core::Language;
 use ast_grep_core::matcher::{Pattern, PatternBuilder, PatternError};
 use ast_grep_core::tree_sitter::{LanguageExt, StrDoc, TSLanguage, TSRange};
@@ -13,7 +13,7 @@ impl Language for Html {
     'z'
   }
   fn pre_process_pattern<'q>(&self, query: &'q str) -> std::borrow::Cow<'q, str> {
-    pre_process_pattern(self.expando_char(), query)
+    prepare(Some(self.expando_char()), query)
   }
   fn kind_to_id(&self, kind: &str) -> u16 {
     crate::parsers::language_html().id_for_node_kind(kind, true)
