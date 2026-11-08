@@ -203,8 +203,10 @@ name = "ast-grep-language"
 version = "0.51.1"
 dependencies = [
  "ast-grep-core",
+ "ast-grep-language-registry",
  "ignore",
  "serde",
+ "serde_json",
  "tree-sitter",
  "tree-sitter-bash",
  "tree-sitter-c",
@@ -234,6 +236,15 @@ dependencies = [
  "tree-sitter-typescript",
  "tree-sitter-yaml",
  "tree-sitter-zig",
+]
+
+[[package]]
+name = "ast-grep-language-registry"
+version = "0.51.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

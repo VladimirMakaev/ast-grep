@@ -11,6 +11,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+ast-grep-language-registry={path="../language-registry"}
 ast-grep-core = { workspace = true, features = ["tree-sitter"] }
 
 ignore.workspace = true
@@ -84,3 +85,6 @@ napi-lang = [
   "tree-sitter-typescript",
 ]
 default = ["builtin-parser"]
+
+[dev-dependencies]
+serde_json="1.0.154"
