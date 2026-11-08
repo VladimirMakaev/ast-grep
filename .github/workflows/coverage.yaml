@@ -45,7 +45,10 @@ jobs:
           key: ${{ runner.os }}-${{ github.sha }}
           restore-keys: ${{ runner.os }}-
       - name: Format
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all -- --check
+          # rustfmt cannot discover mod declarations emitted by macros.
+          rustfmt --edition 2024 --check crates/language/src/*.rs
       - name: Lint
         run: cargo clippy --all-targets --all-features --workspace --release --locked -- -D clippy::all
   minimal-language:

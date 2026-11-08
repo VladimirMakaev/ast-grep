@@ -1,7 +1,7 @@
-use serde::{de,Deserializer};
 use serde::de::Visitor;
-use std::fmt;
+use serde::{Deserializer, de};
 use std::borrow::Cow;
+use std::fmt;
 struct AliasVisitor {
   aliases: &'static [&'static str],
 }
@@ -47,6 +47,16 @@ fn pre_process_pattern(expando: char, query: &str) -> std::borrow::Cow<'_, str> 
   std::borrow::Cow::Owned(ret.into_iter().collect())
 }
 
-
-pub(super) fn prepare(expando:Option<char>,query:&str)->Cow<'_,str> {match expando {Some(c)=>pre_process_pattern(c,query),None=>Cow::Borrowed(query)}}
-pub(super) fn validate_alias<'de,D:Deserializer<'de>>(d:D,aliases:&'static[&'static str])->Result<(),D::Error>{d.deserialize_str(AliasVisitor{aliases})?;Ok(())}
+pub(super) fn prepare(expando: Option<char>, query: &str) -> Cow<'_, str> {
+  match expando {
+    Some(c) => pre_process_pattern(c, query),
+    None => Cow::Borrowed(query),
+  }
+}
+pub(super) fn validate_alias<'de, D: Deserializer<'de>>(
+  d: D,
+  aliases: &'static [&'static str],
+) -> Result<(), D::Error> {
+  d.deserialize_str(AliasVisitor { aliases })?;
+  Ok(())
+}

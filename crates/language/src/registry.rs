@@ -1,10 +1,11 @@
 // One source of language facts. rustfmt does not format this macro table or its
-// emitters, so keep their layout hand-wrapped. Append new languages: table position
+// emitters, so keep their layout hand-wrapped. The explicit rustfmt source-glob
+// check in CI covers ordinary macro-declared modules. Append new languages: position
 // preserves the public enum discriminants even when earlier features are disabled.
-// Go/Elixir alone swap their all_langs order to preserve the historical API.
+// The table is in all_langs order; Go/Elixir alone pin their legacy enum IDs.
 macro_rules! with_languages {
   ($callback:ident $(, $argument:tt)*) => {
-    normalize_languages! {$callback, ($($argument),*); 0; []; [
+    normalize_languages! {$callback, ($($argument),*); [
       Bash {
         feature: "tree-sitter-bash", module: bash,
         parser: language_bash => tree_sitter_bash::LANGUAGE,
@@ -44,19 +45,19 @@ macro_rules! with_languages {
         preprocessing: None, implementation: generated,
         aliases: ["dart"], extensions: ["dart"],
       },
-      Go {
-        feature: "tree-sitter-go", module: go,
-        parser: language_go => tree_sitter_go::LANGUAGE,
-        preprocessing: Some('µ'), implementation: generated,
-        aliases: ["go", "golang"], extensions: ["go"],
-        order: next,
-      },
       Elixir {
         feature: "tree-sitter-elixir", module: elixir,
         parser: language_elixir => tree_sitter_elixir::LANGUAGE,
         preprocessing: Some('µ'), implementation: generated,
         aliases: ["ex", "elixir"], extensions: ["ex", "exs"],
-        order: previous,
+        enum_id: 7,
+      },
+      Go {
+        feature: "tree-sitter-go", module: go,
+        parser: language_go => tree_sitter_go::LANGUAGE,
+        preprocessing: Some('µ'), implementation: generated,
+        aliases: ["go", "golang"], extensions: ["go"],
+        enum_id: 6,
       },
       Haskell {
         feature: "tree-sitter-haskell", module: haskell,
@@ -192,93 +193,73 @@ macro_rules! with_languages {
 // data, root items, and parser items. New record fields belong here; consumers
 // that do not use a facet capture it as a single token tree.
 macro_rules! normalize_languages {
-  ($callback:ident, $arguments:tt; $position:expr; [$($records:tt)*]; []) => {
-    $callback! {$arguments; [$($records)*]}
-  };
-  (
-    $callback:ident, $arguments:tt; $position:expr; [$($records:tt)*]; [
-      $name:ident {
-        feature: $feature:literal, module: $module:ident,
-        parser: $function:ident => $parser:path,
-        preprocessing: $pre:expr, implementation: $kind:ident,
-        aliases: $aliases:expr, extensions: $extensions:expr,
-        $(order: $order:ident,)?
-      }, $($rest:tt)*
-    ]
-  ) => {
-    normalize_languages! {$callback, $arguments; $position + 1; [
-      $($records)*
-      $name $feature
-      ($position, language_order!($position $(, $order)?))
-      ($aliases, $extensions)
+  ($callback:ident, $arguments:tt; [$(
+    $name:ident {
+      feature: $feature:literal, module: $module:ident,
+      parser: $function:ident => $parser:path,
+      preprocessing: $pre:expr, implementation: $kind:ident,
+      aliases: $aliases:expr, extensions: $extensions:expr
+      $(, enum_id: $enum_id:literal)? $(,)?
+    }
+  ),* $(,)?]) => {
+    $callback! {$arguments; [$(
+      $name $feature ($($enum_id)?) ($aliases, $extensions)
       {
         declare_module!($feature, $module);
-        declare_marker!($feature, $name, $function, $pre, $kind);
+        declare_marker!($feature, $name, $module, $function, $pre, $kind);
         declare_alias!($feature, $name, $aliases);
       }
       {
         #[cfg(feature = $feature)]
         pub fn $function() -> ast_grep_core::tree_sitter::TSLanguage { $parser.into() }
       }
-    ]; [$($rest)*]}
+    )*]}
   };
   ($($invalid:tt)*) => {
     compile_error!(concat!(
       "malformed language record: expected Name { feature, module, parser, ",
-      "preprocessing, implementation, aliases, extensions, [order] } with trailing commas"
+      "preprocessing, implementation, aliases, extensions [, enum_id] }"
     ));
   };
 }
 
 macro_rules! emit_registry {
   ((); [$(
-    $name:ident $feature:literal ($enum_id:expr, $order:expr)
+    $name:ident $feature:literal ($($enum_id:literal)?)
     ($aliases:expr, $extensions:expr) {$($items:tt)*} $parsers:tt
   )*]) => {
     #[cfg(any($(feature = $feature),*))]
     mod registry_support;
     $($($items)*)*
-    #[cfg(feature = "tree-sitter-html")]
-    pub use html::Html;
+    // Include disabled languages when deriving ordinals; selective builds keep
+    // the same public IDs. Unused variants here are intentional, unlike SupportLang.
+    #[allow(dead_code)]
+    enum LanguagePosition { $($name,)* }
 
-    // Only rank uses this helper; an empty registry has no rank arms.
-    #[cfg(any($(feature = $feature),*))]
-    macro_rules! language_order {
-      ($position:expr) => {
-        $position
-      };
-      ($position:expr, next) => {
-        $position + 1
-      };
-      ($position:expr, previous) => {
-        $position - 1
-      };
-      ($position:expr, $invalid:ident) => {
-        compile_error!("language order override must be next or previous");
-      };
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum SupportLang { $(
+      #[cfg(feature = $feature)]
+      $name = match [$($enum_id)?].first() {
+        Some(&id) => id,
+        None => LanguagePosition::$name as isize,
+      },
+    )* }
+
+    // Serde's derive uses declaration indices, not Rust discriminants. Keep the
+    // original indices as well as names when Go/Elixir move into list order.
+    impl Serialize for SupportLang {
+      fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+        match *self { $(
+          #[cfg(feature = $feature)]
+          Self::$name => _serializer.serialize_unit_variant("SupportLang", Self::$name as u32, stringify!($name)),
+        )* }
+      }
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Hash)]
-    pub enum SupportLang { $(#[cfg(feature = $feature)] $name = $enum_id,)* }
-
     impl SupportLang {
-      const ALL: &'static [Self] = &Self::ordered([$(#[cfg(feature = $feature)] Self::$name,)*]);
-      const fn rank(self) -> usize {
-        match self { $(#[cfg(feature = $feature)] Self::$name => $order,)* }
+      pub const fn all_langs() -> &'static [Self] {
+        &[$(#[cfg(feature = $feature)] Self::$name,)*]
       }
-      const fn ordered<const N: usize>(mut languages: [Self; N]) -> [Self; N] {
-        let mut i = 0;
-        while i < N {
-          let mut j = i;
-          while j > 0 && languages[j - 1].rank() > languages[j].rank() {
-            languages.swap(j - 1, j);
-            j -= 1;
-          }
-          i += 1;
-        }
-        languages
-      }
-      pub const fn all_langs() -> &'static [Self] { Self::ALL }
       pub fn file_types(&self) -> Types { file_types(*self) }
     }
     impl fmt::Display for SupportLang {

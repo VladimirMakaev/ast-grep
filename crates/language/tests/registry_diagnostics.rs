@@ -1,8 +1,7 @@
 //! Exercise the actual private macro schema without a new test dependency.
 use std::process::Command;
 
-#[test]
-fn malformed_record_explains_the_schema() {
+fn compile_records(records: &str) -> std::process::Output {
   let temporary = std::env::temp_dir().join(format!(
     "ast-grep-registry-diagnostic-{}-{}",
     std::process::id(),
@@ -20,7 +19,8 @@ fn malformed_record_explains_the_schema() {
       r#"#[macro_use]
 #[path = {registry:?}]
 mod registry;
-normalize_languages!(unused, (); 0; []; [Broken {{ feature: "missing-fields" }},]);
+macro_rules! unused {{ ($($tokens:tt)*) => {{}}; }}
+normalize_languages!(unused, (); [{records}]);
 "#
     ),
   )
@@ -37,6 +37,12 @@ normalize_languages!(unused, (); 0; []; [Broken {{ feature: "missing-fields" }},
     .output()
     .unwrap();
   std::fs::remove_dir_all(&temporary).unwrap();
+  output
+}
+
+#[test]
+fn malformed_record_explains_the_schema() {
+  let output = compile_records(r#"Broken { feature: "missing-fields" },"#);
   let stderr = String::from_utf8(output.stderr).unwrap();
   assert!(
     !output.status.success(),
@@ -45,5 +51,23 @@ normalize_languages!(unused, (); 0; []; [Broken {{ feature: "missing-fields" }},
   assert!(
     stderr.contains("malformed language record: expected Name { feature, module, parser"),
     "unexpected diagnostic: {stderr}"
+  );
+}
+
+#[test]
+fn trailing_commas_are_optional() {
+  let output = compile_records(
+    r#"A {
+      feature: "unused", module: none, parser: unused => unused::LANGUAGE,
+      preprocessing: None, implementation: generated, aliases: [], extensions: []
+    }, B {
+      feature: "unused", module: none, parser: unused => unused::LANGUAGE,
+      preprocessing: None, implementation: external, aliases: [], extensions: [], enum_id: 7
+    }"#,
+  );
+  assert!(
+    output.status.success(),
+    "{}",
+    String::from_utf8_lossy(&output.stderr)
   );
 }

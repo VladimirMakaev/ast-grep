@@ -141,20 +141,24 @@ macro_rules! declare_module {
     mod $module;
   };
 }
+// generated supplies the standard unit marker; external uses a marker whose
+// module provides its own Language/LanguageExt implementation (for example Html).
+// New custom behavior uses external rather than adding generator strategies.
 macro_rules! declare_marker {
-  ($feature:literal, $name:ident, $function:ident, $pre:expr, external) => {};
-  ($feature:literal, $name:ident, $function:ident, $pre:expr, generated) => {
+  ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, external) => {
+    #[cfg(feature=$feature)]
+    pub use $module::$name;
+  };
+  ($feature:literal, $name:ident, $module:ident, $function:ident, $pre:expr, generated) => {
     #[cfg(feature=$feature)]
     #[derive(Clone, Copy, Debug)]
     pub struct $name;
     #[cfg(feature=$feature)]
     impl Language for $name {
       fn kind_to_id(&self, kind: &str) -> u16 {
-        let _ = &kind;
         self.get_ts_language().id_for_node_kind(kind, true)
       }
       fn field_to_id(&self, field: &str) -> Option<u16> {
-        let _ = &field;
         self
           .get_ts_language()
           .field_id_for_name(field)
@@ -164,11 +168,9 @@ macro_rules! declare_marker {
         ($pre).unwrap_or_else(|| self.meta_var_char())
       }
       fn pre_process_pattern<'q>(&self, query: &'q str) -> Cow<'q, str> {
-        let _ = &query;
         registry_support::prepare($pre, query)
       }
       fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {
-        let _ = &builder;
         builder.build(|src| StrDoc::try_new(src, *self))
       }
     }
